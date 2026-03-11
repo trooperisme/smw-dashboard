@@ -1,0 +1,5 @@
+address,cluster_id,chains
+0x849151d7d0bf1f34b70d5cad5149d28cc2308bf1,1,ethereum|base
+0xb82b04494dA0090a1F4C2e0d7Ea5C092435a064A,1,ethereum|base|bsc
+7h2N1UqkXjXY1wS3aJ1x4E5g3v8h9dK2P6w4z8qL9T1,2,solana
+# Add remaining 517 wallets here with their respective clusters
