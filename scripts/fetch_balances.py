@@ -8,12 +8,32 @@ from utils.wallet_loader import load_wallets_from_csv
 ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 
+# Hardcoded decimals prevent mis-valuation when Alchemy API returns None
+KNOWN_DECIMALS = {
+    # Ethereum
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": 6,  # USDC
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": 6,  # USDT
+    "0x6b175474e89094c44da98b954eedeac495271d0f": 18, # DAI
+    # Base
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": 6,  # USDC on Base
+    "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": 6,  # USDT on Base
+    # BSC
+    "0x55d398326f99059ff775485246999027b3197955": 18, # USDT on BSC
+    "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": 18, # USDC on BSC
+}
+
 class BalanceFetcher:
     def __init__(self):
         self.metadata_cache = {}
 
     async def get_evm_token_decimals(self, session, url, token_address):
-        """Fetch token decimals from Alchemy."""
+        """Fetch token decimals — check known list first, then Alchemy API."""
+        # Check hardcoded known decimals first
+        lower_addr = token_address.lower() if token_address else None
+        for known_addr, decimals in KNOWN_DECIMALS.items():
+            if lower_addr == known_addr.lower():
+                return decimals
+        
         if token_address in self.metadata_cache:
             return self.metadata_cache[token_address]
             
@@ -27,12 +47,38 @@ class BalanceFetcher:
             async with session.post(url, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    decimals = data.get('result', {}).get('decimals', 18)
+                    decimals = data.get('result', {}).get('decimals') or 18
                     self.metadata_cache[token_address] = decimals
                     return decimals
         except Exception as e:
             print(f"Error fetching metadata for {token_address}: {e}")
         return 18
+
+    async def fetch_native_eth_balance(self, session, url, wallet_address: str, chain: str) -> dict | None:
+        """Fetch native ETH/gas token balance via eth_getBalance."""
+        payload = {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [wallet_address, "latest"]
+        }
+        try:
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    balance_hex = data.get('result', '0x0')
+                    balance_raw = int(balance_hex, 16)
+                    if balance_raw == 0:
+                        return None
+                    return {
+                        'token_address': f'ETH_NATIVE_{chain.upper()}',
+                        'balance_raw': balance_raw,
+                        'decimals': 18,
+                        'chain': chain
+                    }
+        except Exception as e:
+            print(f"Error fetching native ETH for {wallet_address} on {chain}: {e}")
+        return None
 
     async def fetch_evm_balances(self, wallet_address: str, chain: str) -> list:
         """Fetch ERC-20 balances for Ethereum, Base, or BSC."""
@@ -64,13 +110,17 @@ class BalanceFetcher:
                     if resp.status == 200:
                         data = await resp.json()
                         tokens = await self.parse_evm_response(session, url, data, chain, wallet_address)
+                        # Also fetch native ETH/gas token
+                        native = await self.fetch_native_eth_balance(session, url, wallet_address, chain)
+                        if native:
+                            tokens.append(native)
                         return tokens
             except Exception as e:
                 print(f"Error fetching {chain} for {wallet_address}: {e}")
         return []
     
     async def fetch_solana_balances(self, wallet_address: str) -> list:
-        """Fetch SPL token balances for Solana using Helius."""
+        """Fetch SPL token balances + native SOL for Solana using Helius."""
         url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/balances?api-key={HELIUS_API_KEY}"
         
         async with aiohttp.ClientSession() as session:
@@ -78,7 +128,17 @@ class BalanceFetcher:
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        return self.parse_solana_response(data, wallet_address)
+                        tokens = self.parse_solana_response(data, wallet_address)
+                        # Include native SOL balance
+                        native_sol_lamports = data.get('nativeBalance', 0)
+                        if native_sol_lamports > 0:
+                            tokens.append({
+                                'token_address': 'SOL_NATIVE',
+                                'balance_raw': native_sol_lamports,
+                                'decimals': 9,  # SOL has 9 decimals (lamports)
+                                'chain': 'solana'
+                            })
+                        return tokens
             except Exception as e:
                 print(f"Error fetching solana for {wallet_address}: {e}")
         return []
