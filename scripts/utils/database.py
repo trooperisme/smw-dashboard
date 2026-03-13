@@ -30,8 +30,11 @@ def get_unique_tokens(supabase: Client) -> list:
     """Retrieve unique tokens from the latest snapshots."""
     # Simplified approach to get unique tokens requested over last hour
     try:
+        from datetime import datetime, timedelta
+        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+        
         # Execute query to get distinct tkns from snp.
-        res = supabase.table('wallet_snapshots').select('token_address, chain').gte('captured_at', 'now() - interval \'1 hour\'').execute()
+        res = supabase.table('wallet_snapshots').select('token_address, chain').gte('captured_at', one_hour_ago).execute()
         
         # Make unique combining address and chain
         unique_tokens = list({ (v['token_address'], v['chain']): v for v in res.data }.values())
