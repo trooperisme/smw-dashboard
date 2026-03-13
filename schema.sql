@@ -22,29 +22,53 @@ CREATE TABLE token_metadata (
     market_cap NUMERIC,
     liquidity_usd NUMERIC,
     chains TEXT[],
+    is_honeypot BOOLEAN DEFAULT FALSE,
+    buy_tax NUMERIC,
+    sell_tax NUMERIC,
+    trust_score INT,
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Materialized view for dashboard
+-- Logic: 
+-- 1. Filter out tokens flagged as honeypots
+-- 2. Only include clusters where their holding in the specific token is > $1000
 CREATE MATERIALIZED VIEW aggregated_holdings AS
+WITH cluster_holdings AS (
+    SELECT 
+        token_address,
+        cluster_id,
+        SUM(balance_usd) as cluster_total_usd
+    FROM 
+        wallet_snapshots
+    WHERE 
+        captured_at > NOW() - INTERVAL '24 hours'
+    GROUP BY 
+        token_address, cluster_id
+    HAVING 
+        SUM(balance_usd) > 1000
+)
 SELECT 
     t.token_name,
     t.ticker,
     t.token_address,
     EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - t.pair_created_at)) / 86400 AS token_age_days,
     t.chains,
-    COUNT(DISTINCT s.cluster_id) AS smw_in,
-    SUM(s.balance_usd) AS total_holdings_usd,
+    t.is_honeypot,
+    t.buy_tax,
+    t.sell_tax,
+    COUNT(DISTINCT ch.cluster_id) AS smw_in,
+    SUM(ch.cluster_total_usd) AS total_holdings_usd,
     t.market_cap,
-    (SUM(s.balance_usd) / NULLIF(t.market_cap, 0)) * 100 AS holdings_mc_pct
+    (SUM(ch.cluster_total_usd) / NULLIF(t.market_cap, 0)) * 100 AS holdings_mc_pct
 FROM 
     token_metadata t
 JOIN 
-    wallet_snapshots s ON t.token_address = s.token_address
+    cluster_holdings ch ON t.token_address = ch.token_address
 WHERE 
-    s.captured_at > NOW() - INTERVAL '24 hours'
+    t.is_honeypot = FALSE
 GROUP BY 
-    t.token_address, t.token_name, t.ticker, t.pair_created_at, t.chains, t.market_cap;
+    t.token_address, t.token_name, t.ticker, t.pair_created_at, t.chains, t.market_cap, t.is_honeypot, t.buy_tax, t.sell_tax;
 
 CREATE INDEX idx_token_address ON wallet_snapshots(token_address);
 CREATE INDEX idx_captured_at ON wallet_snapshots(captured_at);

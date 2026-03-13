@@ -5,6 +5,36 @@ from utils.database import get_supabase_client, get_unique_tokens, upsert_token_
 
 class MarketDataEnricher:
     
+    async def check_security(self, token_address: str, chain: str) -> dict:
+        """Check token security via GoPlus API."""
+        chain_ids = {
+            'ethereum': '1',
+            'base': '8453',
+            'bsc': '56'
+        }
+        chain_id = chain_ids.get(chain)
+        if not chain_id:
+            return {'is_honeypot': False, 'buy_tax': 0, 'sell_tax': 0, 'trust_score': 100}
+            
+        url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}?contract_addresses={token_address}"
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        res = await resp.json()
+                        data = res.get('result', {}).get(token_address.lower(), {})
+                        
+                        return {
+                            'is_honeypot': data.get('is_honeypot') == '1',
+                            'buy_tax': float(data.get('buy_tax', 0)),
+                            'sell_tax': float(data.get('sell_tax', 0)),
+                            'trust_score': int(data.get('trust_score', 80)) if data.get('trust_score') else 80
+                        }
+            except Exception as e:
+                print(f"GoPlus Error for {token_address}: {e}")
+        return {'is_honeypot': False, 'buy_tax': 0, 'sell_tax': 0, 'trust_score': 50}
+
     async def enrich_token(self, token_address: str, chain: str) -> dict:
         """Fetch market data from Dexscreener to retrieve Market Cap and Token Age."""
         
@@ -35,12 +65,20 @@ class MarketDataEnricher:
                     
                     # Target pair with highest USD liquidity
                     primary_pair = max(pairs, key=lambda p: float(p.get('liquidity', {}).get('usd', 0)))
+                    liquidity_usd = float(primary_pair.get('liquidity', {}).get('usd', 0))
+                    
+                    # LIQUIDITY FLOOR: $10,000
+                    if liquidity_usd < 10000:
+                        return None
                     
                     pair_created_at = primary_pair.get('pairCreatedAt')
                     created_date = datetime.fromtimestamp(pair_created_at / 1000) if pair_created_at else None
                     
                     # For tokens without marketCap via API, Dexscreener often uses FDV 
                     mc = primary_pair.get('marketCap') or primary_pair.get('fdv')
+                    
+                    # Fetch Security Data
+                    security = await self.check_security(token_address, chain)
                     
                     return {
                         'token_address': token_address,
@@ -49,7 +87,11 @@ class MarketDataEnricher:
                         'ticker': primary_pair.get('baseToken', {}).get('symbol'),
                         'market_cap': mc,
                         'pair_created_at': created_date.isoformat() if created_date else None,
-                        'liquidity_usd': float(primary_pair.get('liquidity', {}).get('usd', 0)),
+                        'liquidity_usd': liquidity_usd,
+                        'is_honeypot': security['is_honeypot'],
+                        'buy_tax': security['buy_tax'],
+                        'sell_tax': security['sell_tax'],
+                        'trust_score': security['trust_score'],
                         'last_updated': datetime.now().isoformat()
                     }
             except Exception as e:

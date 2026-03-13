@@ -91,7 +91,8 @@ if df.empty:
     
     df = pd.DataFrame(columns=[
         'token_name', 'ticker', 'token_age_days', 'chains',
-        'smw_in', 'total_holdings_usd', 'market_cap', 'holdings_mc_pct'
+        'smw_in', 'total_holdings_usd', 'market_cap', 'holdings_mc_pct',
+        'is_honeypot', 'buy_tax', 'sell_tax'
     ])
 
 # Filters
@@ -114,6 +115,11 @@ with col_chain:
     )
 
 st.sidebar.markdown("---")
+# Verified Only Filter
+show_verified = st.sidebar.toggle("🛡️ Show Verified Only", value=True)
+if show_verified and not df.empty and 'is_honeypot' in df.columns:
+    df = df[df['is_honeypot'] == False]
+
 min_smw = st.sidebar.slider("Min SMW Clusters", min_value=1, max_value=26, value=1)
 min_age = st.sidebar.number_input("Min Age (Days)", value=0)
 max_age = st.sidebar.number_input("Max Age (Days)", value=365)
@@ -160,7 +166,7 @@ st.markdown("---")
 if not filtered_df.empty:
     display_df = filtered_df[[
         'token_name', 'ticker', 'total_holdings_usd', 'holdings_mc_pct', 
-        'market_cap', 'smw_in', 'token_age_days', 'chains'
+        'market_cap', 'smw_in', 'token_age_days', 'chains', 'buy_tax', 'sell_tax'
     ]].copy()
     
     # Clean output
@@ -169,10 +175,12 @@ if not filtered_df.empty:
     display_df['market_cap'] = display_df['market_cap'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A")
     display_df['holdings_mc_pct'] = display_df['holdings_mc_pct'].apply(lambda x: f"{x:.4f}%" if pd.notnull(x) else "N/A")
     display_df['token_age_days'] = display_df['token_age_days'].apply(lambda x: f"{x:.1f}" if pd.notnull(x) else "N/A")
+    display_df['buy_tax'] = display_df['buy_tax'].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) else "0%")
+    display_df['sell_tax'] = display_df['sell_tax'].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) else "0%")
     
     display_df.columns = [
         'Token', 'Ticker', 'Holdings', 'Holdings vs MC %', 
-        'Market Cap', 'SMW In', 'Age (Days)', 'Chains'
+        'Market Cap', 'SMW In', 'Age (Days)', 'Chains', 'Buy Tax', 'Sell Tax'
     ]
     
     # Sort by Holdings by default
