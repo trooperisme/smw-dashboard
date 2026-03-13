@@ -37,25 +37,42 @@ st.markdown("""
 def init_supabase():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
+    
+    # Store in session state for debugging visibility
+    st.sidebar.subheader("Connection Status")
+    if not url:
+        st.sidebar.error("❌ SUPABASE_URL missing")
+    if not key:
+        st.sidebar.error("❌ SUPABASE_KEY missing")
+        
     if not url or not key:
-        st.warning("Database configuration missing (SUPABASE_URL/SUPABASE_KEY). Using placeholder data.")
         return None
-    return create_client(url, key)
+        
+    try:
+        client = create_client(url, key)
+        st.sidebar.success("✅ Connected to Supabase")
+        return client
+    except Exception as e:
+        st.sidebar.error(f"❌ Connection Error: {e}")
+        return None
 
 supabase = init_supabase()
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=300) # Reduced TTL for debugging
 def load_data():
     if not supabase:
-        # Provide placeholder for UI development if keys missing
-        return pd.DataFrame()
+        return pd.DataFrame(), "Connection failed"
         
     try:
         response = supabase.table('aggregated_holdings').select('*').execute()
-        return pd.DataFrame(response.data)
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            return df, "Database is connected but the 'aggregated_holdings' table is empty. Please check if your GitHub Action has run successfully."
+        return df, None
     except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return pd.DataFrame()
+        status = f"Query Error: {e}"
+        st.sidebar.error(f"❌ {status}")
+        return pd.DataFrame(), status
 
 # Main Header
 st.title("💎 Smart Money Holdings DEX")
@@ -63,11 +80,15 @@ st.title("💎 Smart Money Holdings DEX")
 # Sidebar
 st.sidebar.header("Filter Signals")
 
-df = load_data()
+df, error_msg = load_data()
 
 # Render UI even if DF is empty for scaffolding purposes
 if df.empty:
-    st.info("No data available or Database not connected. Awaiting data ingestion pipeline.")
+    if error_msg:
+        st.info(error_msg)
+    else:
+        st.info("No data available. Awaiting data ingestion pipeline.")
+    
     df = pd.DataFrame(columns=[
         'token_name', 'ticker', 'token_age_days', 'chains',
         'smw_in', 'total_holdings_usd', 'market_cap', 'holdings_mc_pct'

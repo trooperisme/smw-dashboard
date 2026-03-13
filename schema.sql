@@ -42,7 +42,7 @@ FROM
 JOIN 
     wallet_snapshots s ON t.token_address = s.token_address
 WHERE 
-    s.captured_at > NOW() - INTERVAL '1 hour'
+    s.captured_at > NOW() - INTERVAL '24 hours'
 GROUP BY 
     t.token_address, t.token_name, t.ticker, t.pair_created_at, t.chains, t.market_cap;
 
