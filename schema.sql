@@ -35,7 +35,9 @@ CREATE TABLE token_metadata (
 -- Materialized view for dashboard
 -- Logic: 
 -- 1. Filter out tokens flagged as honeypots
--- 2. Only include clusters where their holding in the specific token is > $1000
+-- 2. Calculate true USD value per cluster using decimals and price
+-- NOTE: $1000 minimum is enforced in the Streamlit UI, NOT here,
+--       to prevent missing-price tokens from being silently excluded.
 CREATE MATERIALIZED VIEW aggregated_holdings AS
 WITH cluster_holdings AS (
     SELECT 
@@ -50,8 +52,6 @@ WITH cluster_holdings AS (
         s.captured_at > NOW() - INTERVAL '24 hours'
     GROUP BY 
         s.token_address, s.cluster_id
-    HAVING 
-        SUM((s.balance_raw / pow(10, COALESCE(s.decimals, 18))) * COALESCE(t.price_usd, 0)) > 1000
 )
 SELECT 
     t.token_name,

@@ -121,6 +121,7 @@ if show_verified and not df.empty and 'is_honeypot' in df.columns:
     df = df[df['is_honeypot'] == False]
 
 min_smw = st.sidebar.slider("Min SMW Clusters", min_value=1, max_value=26, value=1)
+min_holdings = st.sidebar.number_input("Min Cluster Holdings ($)", value=1000, step=100)
 min_age = st.sidebar.number_input("Min Age (Days)", value=0)
 max_age = st.sidebar.number_input("Max Age (Days)", value=365)
 
@@ -128,10 +129,15 @@ max_age = st.sidebar.number_input("Max Age (Days)", value=365)
 # Apply Filter Logic
 filtered_df = df.copy()
 if not filtered_df.empty:
+    # Fill null market_cap so comparisons don't silently drop rows
+    filtered_df['market_cap'] = pd.to_numeric(filtered_df['market_cap'], errors='coerce').fillna(0)
+    filtered_df['total_holdings_usd'] = pd.to_numeric(filtered_df['total_holdings_usd'], errors='coerce').fillna(0)
+
     filtered_df = filtered_df[
         (filtered_df['market_cap'] >= min_mcap) &
         (filtered_df['market_cap'] <= max_mcap) &
-        (filtered_df['smw_in'] >= min_smw)
+        (filtered_df['smw_in'] >= min_smw) &
+        (filtered_df['total_holdings_usd'] >= min_holdings)  # $1000 slider filter
     ]
     
     # Age filter (handle nulls if any)
