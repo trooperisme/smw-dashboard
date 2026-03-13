@@ -20,7 +20,7 @@ class MarketDataEnricher:
         if not dex_chain:
             return None
 
-        url = f"https://api.dexscreener.com/latest/dex/tokens/{dex_chain}/{token_address}"
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
         
         async with aiohttp.ClientSession() as session:
             try:
@@ -44,7 +44,7 @@ class MarketDataEnricher:
                     
                     return {
                         'token_address': token_address,
-                        'chain': chain,
+                        'chains': [chain],
                         'token_name': primary_pair.get('baseToken', {}).get('name'),
                         'ticker': primary_pair.get('baseToken', {}).get('symbol'),
                         'market_cap': mc,
