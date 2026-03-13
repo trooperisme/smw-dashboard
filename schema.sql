@@ -10,6 +10,7 @@ CREATE TABLE wallet_snapshots (
     balance_raw NUMERIC,
     balance_usd NUMERIC,
     chain TEXT NOT NULL,
+    decimals INT DEFAULT 18,
     captured_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -21,6 +22,8 @@ CREATE TABLE token_metadata (
     pair_created_at TIMESTAMP WITH TIME ZONE,
     market_cap NUMERIC,
     liquidity_usd NUMERIC,
+    price_usd NUMERIC,
+    decimals INT DEFAULT 18,
     chains TEXT[],
     is_honeypot BOOLEAN DEFAULT FALSE,
     buy_tax NUMERIC,
@@ -36,17 +39,19 @@ CREATE TABLE token_metadata (
 CREATE MATERIALIZED VIEW aggregated_holdings AS
 WITH cluster_holdings AS (
     SELECT 
-        token_address,
-        cluster_id,
-        SUM(balance_usd) as cluster_total_usd
+        s.token_address,
+        s.cluster_id,
+        SUM((s.balance_raw / pow(10, COALESCE(s.decimals, 18))) * COALESCE(t.price_usd, 0)) as cluster_total_usd
     FROM 
-        wallet_snapshots
+        wallet_snapshots s
+    LEFT JOIN
+        token_metadata t ON s.token_address = t.token_address
     WHERE 
-        captured_at > NOW() - INTERVAL '24 hours'
+        s.captured_at > NOW() - INTERVAL '24 hours'
     GROUP BY 
-        token_address, cluster_id
+        s.token_address, s.cluster_id
     HAVING 
-        SUM(balance_usd) > 1000
+        SUM((s.balance_raw / pow(10, COALESCE(s.decimals, 18))) * COALESCE(t.price_usd, 0)) > 1000
 )
 SELECT 
     t.token_name,

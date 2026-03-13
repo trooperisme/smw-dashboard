@@ -9,7 +9,31 @@ ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 
 class BalanceFetcher:
-    
+    def __init__(self):
+        self.metadata_cache = {}
+
+    async def get_evm_token_decimals(self, session, url, token_address):
+        """Fetch token decimals from Alchemy."""
+        if token_address in self.metadata_cache:
+            return self.metadata_cache[token_address]
+            
+        payload = {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "alchemy_getTokenMetadata",
+            "params": [token_address]
+        }
+        try:
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    decimals = data.get('result', {}).get('decimals', 18)
+                    self.metadata_cache[token_address] = decimals
+                    return decimals
+        except Exception as e:
+            print(f"Error fetching metadata for {token_address}: {e}")
+        return 18
+
     async def fetch_evm_balances(self, wallet_address: str, chain: str) -> list:
         """Fetch ERC-20 balances for Ethereum, Base, or BSC."""
         
@@ -39,7 +63,8 @@ class BalanceFetcher:
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        return self.parse_evm_response(data, chain, wallet_address)
+                        tokens = await self.parse_evm_response(session, url, data, chain, wallet_address)
+                        return tokens
             except Exception as e:
                 print(f"Error fetching {chain} for {wallet_address}: {e}")
         return []
@@ -58,7 +83,7 @@ class BalanceFetcher:
                 print(f"Error fetching solana for {wallet_address}: {e}")
         return []
     
-    def parse_evm_response(self, data: dict, chain: str, address: str) -> list:
+    async def parse_evm_response(self, session, url, data: dict, chain: str, address: str) -> list:
         """Parse RPC response into standard format."""
         tokens = []
         if chain in ['ethereum', 'base']:
@@ -68,9 +93,14 @@ class BalanceFetcher:
                 balance_raw = int(token_data.get('tokenBalance', '0'), 16)
                 if balance_raw == 0:
                     continue
+                
+                t_addr = token_data.get('contractAddress')
+                decimals = await self.get_evm_token_decimals(session, url, t_addr)
+                
                 tokens.append({
-                    'token_address': token_data.get('contractAddress'),
+                    'token_address': t_addr,
                     'balance_raw': balance_raw,
+                    'decimals': decimals,
                     'chain': chain
                 })
         elif chain == 'bsc':
@@ -79,7 +109,8 @@ class BalanceFetcher:
              for asset in assets:
                  tokens.append({
                     'token_address': asset.get('contractAddress'),
-                    'balance_raw': float(asset.get('balance', 0)), # Ankr format is often pre-calculated
+                    'balance_raw': float(asset.get('balance', 0)),
+                    'decimals': int(asset.get('tokenDecimals', 18)),
                     'balance_usd': float(asset.get('balanceUsd', 0)),
                     'chain': chain
                  })
@@ -92,6 +123,7 @@ class BalanceFetcher:
             tokens.append({
                 'token_address': token.get('mint'),
                 'balance_raw': token.get('amount'),
+                'decimals': int(token.get('decimals', 0)),
                 'chain': 'solana'
             })
         return tokens

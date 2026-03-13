@@ -86,6 +86,7 @@ class MarketDataEnricher:
                         'token_name': primary_pair.get('baseToken', {}).get('name'),
                         'ticker': primary_pair.get('baseToken', {}).get('symbol'),
                         'market_cap': mc,
+                        'price_usd': float(primary_pair.get('priceUsd', 0)),
                         'pair_created_at': created_date.isoformat() if created_date else None,
                         'liquidity_usd': liquidity_usd,
                         'is_honeypot': security['is_honeypot'],
